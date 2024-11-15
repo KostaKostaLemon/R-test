@@ -1,0 +1,344 @@
+---
+title: "003Markdown_TwoFactorial"
+output: html_document
+date: "2024-11-12"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Instal Packages
+```{r instal packages}
+
+install.packages("forcats")
+install.packages("DHARMa")
+library(ggplot2)# plotting
+library(dplyr)# data management and summary statistics
+library(ggpubr)# plotting
+library(openxlsx)# import and export Excel files
+library(forcats)# factor repordering
+library(DHARMa) # model diagnostics
+library(emmeans) # posthoc tests
+library(multcomp) # cld
+library(multcompView) #cld
+library(glmmTMB) # mixed model
+library(car) # anova for glmmTMB
+library(lme4) # lmer and glmer mixed model
+library(lmerTest) # test lmer
+library(conflicted)
+conflicts_prefer(lmerTest::lmer)
+# Suppress summarise info
+options(dplyr.summarise.inform = FALSE)
+```
+
+# Import Data
+```{r Import Data}
+df = read.xlsx("rawData/data_YSM.xlsx")
+
+str(df)
+head(df)
+tail(df)
+```
+# Data transformation
+
+```{r}
+df <- df %>%
+  mutate(across(c(geno, N), ~ as.factor(.x)),
+         N = fct_relevel(N, "low", "med", "high"),
+         block = as.factor(rep))
+
+
+
+str(df)
+summary(df)
+!is.na(df)
+class(df)
+
+```
+ # 1st. Plot
+ 
+```{r}
+ggplot(data = df, aes(x= N, y= yield, col = geno)) +
+  stat_boxplot(geom = "errorbar", width = 0.6) +
+  geom_boxplot(outlier.shape=NA, 
+               width = 0.6) +
+  geom_jitter(position=position_jitterdodge(jitter.width = 0.4, jitter.height = 0, 
+                                            dodge.width=0.6), shape=1, size=1) 
+
+```
+# Fit Model
+
+```{r}
+model = lm(yield ~ geno * N, data = df)
+
+
+summary(model)
+
+```
+Yield of geno4 at high N: Intercept + genog4 + Nhigh + genog4:Nhigh
+
+
+# Check Model Assumptions
+## Heteroscedasticity
+-- Dharma: residual diagnosics
+
+```{r}
+simulationOutput <- simulateResiduals(fittedModel = model, plot = F)
+plot(simulationOutput)
+```
+# within group Residual variability
+```{r}
+plotResiduals(simulationOutput, form = df$geno)
+```
+# Test of significance and posthoc tests
+
+```{r}
+anova(model)
+```
+```{r}
+emmeans(model, ~geno*N)
+
+```
+# Groupwise comparison
+```{r}
+contrast(emmeans(model, ~N|geno), method="pairwise", infer=c(T,T)) 
+```
+
+```{r}
+emmeans(model, ~N|geno)
+```
+# vergleich Standard vs Kontrolle
+```{r}
+contrast(emmeans(model, ~N|geno), method="trt.vs.ctrl") # erstes Level = Standard
+contrast(emmeans(model, ~N|geno), method="trt.vs.ctrl", ref = 3) #drittes level= standard
+
+# Ein Test weniger, kann statistisch sinnvll sein/ helfen Signifikanz zu erreichen
+```
+```{r}
+cld(emmeans(model,  ~N|geno ), method= "pairwise", adjust="sidak", Letters=letters)
+```
+# Presentation of results
+
+```{r}
+CIs=cld(emmeans(model, ~N|geno), method="pairwise", adjust="sidak", Letters=letters)
+CIs$.group =gsub(" ", "", CIs$.group, fixed = TRUE)
+CIs
+
+
+
+ggplot(df, aes(y=yield, x=N, col=N)) +
+  geom_point(shape=1, size=1.5)+
+  geom_point(data=CIs, aes(y=emmean), 
+             shape=16,  size=2, 
+             position = position_nudge(x = 0.4))+
+  geom_errorbar(data=CIs, aes(y=emmean, ymin=lower.CL, ymax=upper.CL), 
+                width=0.2, position = position_nudge(x = 0.4))+
+  geom_text(data=CIs, aes(y = 110, label =.group), col=1)+
+ scale_color_manual(values=c(rgb(240,215,35, max = 255), 
+                             rgb(190,210,35, max = 255), 
+                              rgb(35,80,150, max = 255)                              ),
+                     limits = c("low","med", "high"))+
+  facet_grid(~geno, scales="free", labeller = labeller(geno=label_both))+
+  theme_bw() +
+  theme(legend.position = "none")+
+  ylab("Dry matter yield (dt/ha)")+
+  xlab("Nitrogen fertilisation")
+```
+
+# Analysis of Pests in relation to N, Genotype
+
+```{r}
+
+ggplot(df, aes(y = pests, x = N, col = geno)) +
+  stat_boxplot(geom ="errorbar", width = 0.6)+
+  geom_boxplot(outlier.shape=NA, width = 0.6) +
+  geom_jitter(position=position_jitterdodge(jitter.width = 0.1, jitter.height = 0, 
+                                            dodge.width=0.6), shape=1, size=1)
+```
+
+
+
+```{r}
+model_pests = lm(pests ~ geno*N, data= df)
+
+
+simulationOutput <- simulateResiduals(fittedModel = model_pests, plot = F)
+plot(simulationOutput)
+```
+```{r}
+plotResiduals(simulationOutput, form = df$geno)
+```
+```{r}
+plotResiduals(simulationOutput, form = df$N)
+```
+
+# Test of Significance
+
+```{r}
+anova(model_pests)
+```
+
+```{r}
+contrast(emmeans(model_pests, ~N|geno), 
+         #method = "pairwise"
+         method="trt.vs.ctrl"
+         )
+```
+
+```{r}
+cld(emmeans(model_pests, ~N|geno), 
+    #method="pairwise", 
+    method="trt.vs.ctrl",
+    adjust="sidak", Letters=letters)
+```
+```{r}
+CIs=cld(emmeans(model_pests, ~N|geno), method="pairwise", adjust="sidak", Letters=letters)
+CIs$.group =gsub(" ", "", CIs$.group, fixed = TRUE)
+CIs
+
+
+
+ggplot(df, aes(y=pests, x=N)) +
+  #geom_boxplot(col = geno) +
+  geom_point(shape=1, size=1.5)+
+  geom_point(data=CIs, aes(y=emmean), 
+             shape=16,  size=2, 
+             position = position_nudge(x = 0.4))+
+  geom_errorbar(data=CIs, aes(y=emmean, ymin=lower.CL, ymax=upper.CL), 
+                width=0.2, position = position_nudge(x = 0.4))+
+  geom_text(data=CIs, aes(y = 110, label =.group), col=1)+
+  facet_grid(~geno, scales="free", labeller = labeller(geno=label_both))+
+  theme_bw() +
+  theme(legend.position = "none")+
+  ylab("pests")+
+  xlab("Nitrogen fertilisation")
+```
+# Linear Model as fixed Effect
+
+```{r}
+df$block=as.factor(df$rep)
+ggplot(df, aes(y=yield, x=N, col=N, shape=block)) +
+  geom_point(size=1.5)+
+  scale_color_manual(values=c(rgb(240,215,35, max = 255), 
+                             rgb(190,210,35, max = 255), 
+                              rgb(35,80,150, max = 255)),
+                     limits = c("low","med", "high"))+
+  facet_grid(~geno, scales="free", labeller = labeller(geno=label_both))+
+  theme_bw() +
+  theme(legend.position = "bottom")+
+  ylab("Dry matter yield (dt/ha)")+
+  xlab("Nitrogen fertilisation")
+```
+```{r}
+model2 <- lm(yield ~ geno * N + block, data = df)
+summary(model2)
+```
+
+```{r with Block}
+CI2s=cld(emmeans(model2, ~N|geno), method="pairwise", adjust="sidak", Letters=letters)
+CI2s$.group =gsub(" ", "", CI2s$.group, fixed = TRUE)
+CI2s
+
+ggplot(df, aes(y=yield, x=N, col=N)) +
+  geom_point(shape=1, size=1.5)+
+  geom_point(data=CI2s, aes(y=emmean), 
+             shape=16,  size=2, 
+             position = position_nudge(x = 0.4))+
+  geom_errorbar(data=CI2s, aes(y=emmean, ymin=lower.CL, ymax=upper.CL), 
+                width=0.2, position = position_nudge(x = 0.4))+
+  geom_text(data=CI2s, aes(y = 110, label =.group), col=1)+
+ scale_color_manual(values=c(rgb(240,215,35, max = 255), 
+                             rgb(190,210,35, max = 255), 
+                              rgb(35,80,150, max = 255)                              ),
+                     limits = c("low","med", "high"))+
+  facet_grid(~geno, scales="free", labeller = labeller(geno=label_both))+
+  theme_bw() +
+  theme(legend.position = "none")+
+  ylab("Dry matter yield (dt/ha)")+
+  xlab("Nitrogen fertilisation")
+```
+
+# Compare Model with and w/out Block Effekt
+```{r compare with and without block}
+CI.comp=rbind(CIs, CI2s)
+CI.comp$model=rep(c("model", "model2"), each=12)
+
+ggplot(data=CI.comp, aes(y=emmean, x=N, col=model, group=model))+
+  geom_point(position=position_dodge(width=0.4))+
+  geom_errorbar(aes(y=emmean, ymin=lower.CL, ymax=upper.CL), 
+                width=0.4, 
+                position=position_dodge(width=0.4))+
+  facet_grid(~geno)+
+  theme(legend.position="bottom")
+```
+
+# Linear mixed effect model with block as random effect (glmmTMB)
+
+```{r}
+model3 <- glmmTMB(yield ~ geno * N + (1|block), data = df, REML=T)
+summary(model3)
+
+Anova(model3)
+
+CI3s=cld(emmeans(model3, ~N|geno), method="pairwise", adjust="sidak", Letters=letters)
+CI3s$.group =gsub(" ", "", CI3s$.group, fixed = TRUE)
+CI3s
+```
+# Compare CIs of various models
+
+
+
+```{r}
+CI.comp=rbind(CIs, CI2s, CI3s, CI4s)
+CI.comp$model=factor(rep(c("lm crd", "lm rcbd", "glmmTMB",  "lmer"), each=12), levels =c("lm crd", "lm rcbd", "glmmTMB",  "lmer"))
+```
+
+
+# gmm for pest.a in dependance of genotype and N
+```{r}
+model_glm = glmmTMB(pests.A ~ geno * N + (1|block), data = df, family="poisson")
+
+summary(model_glm)
+```
+
+
+# have a look at data
+
+# Test model
+
+```{r}
+simulationOutput <- simulateResiduals(fittedModel = model_glm, plot = F)
+testDispersion(simulationOutput)
+```
+
+
+# Test for disperion
+
+```{r}
+plot(simulationOutput)
+```
+
+family = negative binominial (nbinom2)
+
+```{r}
+model_nbinom2 = glmmTMB(pests.A ~ geno * N + (1|block), data = df, family="nbinom2")
+
+summary(model_nbinom2)
+```
+```{r}
+simulationOutput <- simulateResiduals(fittedModel = model_nbinom2, plot = F)
+testDispersion(simulationOutput)
+```
+
+```{r}
+simulationOutput <- simulateResiduals(fittedModel = model, plot = F)
+plot(simulationOutput)
+```
+```{r}
+plotResiduals(simulationOutput, form = df$N)
+```
+
+
+# plot model
+
